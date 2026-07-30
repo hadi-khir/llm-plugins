@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
+  "name": "hadi-plugins",
+  "description": "Claude Code plugins by Hadi Khir",
+  "version": "1.0.0",
+  "owner": {
+    "name": "Hadi Khir",
+    "email": "khir.hadi@gmail.com",
+    "url": "https://github.com/hadi-areaxo"
+  },
+  "plugins": [
+    {
+      "name": "trad-coding",
+      "source": "./plugins/trad-coding",
+      "description": "Hands-off coding mode: Claude never edits files itself, only provides code snippets and concise instructions for you to apply manually.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Hadi Khir",
+        "email": "khir.hadi@gmail.com"
+      }
+    }
+  ]
+}
