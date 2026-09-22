@@ -1,0 +1,97 @@
+{
+  "model": "jev-latest",
+  "max_bounces": 3,
+  "thresholds": {
+    "covered_min": 0.6,
+    "scope_creep_max": 0.6,
+    "unsafe_max": 0.5,
+    "needed_min": 0.4,
+    "checked_min": 0.4,
+    "mismatch_confidence_min": 0.6,
+    "altitude_warn_min": 3
+  },
+  "questions": {
+    "best_candidate": {
+      "type": "choice",
+      "instructions": "Which entry in `candidates` solves `request` with the least new code and the lowest risk of breaking behavior that other code depends on?"
+    },
+    "cand_solves": {
+      "type": "noul",
+      "instructions": "Does `candidates[{i}].text` describe a change that, once done, produces everything asked for in `request`?",
+      "criteria": {
+        "true": "Every outcome asked for in `request` is produced by this candidate",
+        "false": "At least one outcome asked for in `request` is missing or deferred"
+      }
+    },
+    "cand_size": {
+      "type": "score",
+      "instructions": "How much new code does `candidates[{i}].text` add?",
+      "criteria": [
+        "Edits a few lines in existing files",
+        "Adds a helper function or a small block inside an existing file",
+        "Adds a new file or module",
+        "Adds a new package, service, or external dependency"
+      ]
+    },
+    "cand_risk": {
+      "type": "score",
+      "instructions": "How likely is `candidates[{i}].text` to change behavior that other parts of the system depend on?",
+      "criteria": [
+        "Touches only code that nothing else calls",
+        "Touches shared code but keeps its existing behavior",
+        "Changes shared behavior, a config that other components read, or a validation or security gate"
+      ]
+    },
+    "req_covered": {
+      "type": "noul",
+      "instructions": "Is there at least one entry in `steps` whose action produces what `requirements[{j}]` asks for?",
+      "criteria": {
+        "true": "A step's action directly produces it",
+        "false": "No step produces it, or a step only mentions it without doing it"
+      }
+    },
+    "scope_creep": {
+      "type": "noul",
+      "instructions": "Does any entry in `steps` do work that `request` did not ask for and that is not needed to complete what `request` asked for?",
+      "criteria": {
+        "true": "At least one step adds unrequested, unnecessary work",
+        "false": "Every step serves what `request` asked for"
+      }
+    },
+    "unsafe_without_guard": {
+      "type": "noul",
+      "instructions": "Does any entry in `steps` change production configuration, a validation or authentication boundary, or a tasking or countermeasure gate, without another entry in `steps` that tests or verifies that change?",
+      "criteria": {
+        "true": "Such a change exists and no step verifies it",
+        "false": "No such change, or every such change has a step that verifies it"
+      }
+    },
+    "step_needed": {
+      "type": "noul",
+      "instructions": "Is `steps[{k}]` required to complete `request`?",
+      "criteria": {
+        "true": "Removing this step would leave part of `request` undone",
+        "false": "This step could be removed and `request` would still be fully done"
+      }
+    },
+    "step_checked": {
+      "type": "noul",
+      "instructions": "Does `steps[{k}]` either name a test, command, or observable result that shows it worked, or consist only of an action so small that no check is needed, such as a commit, a rename, or a one-line documentation edit?",
+      "criteria": {
+        "true": "It names its check, or it is too small to need one",
+        "false": "It changes behavior and names no way to confirm the change worked"
+      }
+    },
+    "step_altitude": {
+      "type": "score",
+      "instructions": "What kind of code does `steps[{k}]` add?",
+      "criteria": [
+        "Reuses or edits code that already exists in the repository",
+        "Uses the standard library or a native platform feature",
+        "Adds a new helper inside an existing file",
+        "Adds a new module or file",
+        "Adds a new external dependency"
+      ]
+    }
+  }
+}
