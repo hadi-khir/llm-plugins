@@ -7,8 +7,9 @@ Claude Code plugins by [Hadi Khir](https://github.com/hadi-khir).
 Add the marketplace (once), then install a plugin:
 
 ```
-/plugin marketplace add hadi-khir/claude-plugins
+/plugin marketplace add hadi-khir/llm-plugins
 /plugin install trad-coding@hadi-plugins
+/plugin install jev-planning@hadi-plugins
 ```
 
 ## Plugins
@@ -61,15 +62,29 @@ Design and question wording: `docs/superpowers/specs/2026-09-22-jev-plan-gate-de
 
 #### Setup
 
-Not a marketplace install yet: it is wired by path, so edits apply instantly.
+Python 3.9+ on `PATH`; no packages to install.
 
-1. Clone this repo and note the absolute path to `plugins/jev-planning/hooks/plan_gate.py`.
-   Python 3.9+ on `PATH`; no packages to install.
-2. Get an API key from the [TypeSafe console](https://console.typesafe.ai) and set it as a
+1. Get an API key from the [TypeSafe console](https://console.typesafe.ai) and set it as a
    user environment variable named `TYPESAFE_API_KEY`, then restart Claude Code so the hook
    process inherits it (Windows: `setx TYPESAFE_API_KEY <key>`; macOS/Linux: export it
    from your shell profile).
-3. Add the hook to `~/.claude/settings.json` (merge into an existing `hooks` block if you have one):
+2. Install the hook **one** of two ways, never both (two copies would score every plan twice
+   and burn the bounce cap at double speed):
+
+   **Marketplace install** (the plugin ships its own `hooks/hooks.json`):
+
+   ```
+   /plugin marketplace add hadi-khir/llm-plugins
+   /plugin install jev-planning@hadi-plugins
+   ```
+
+   Rubric changes then arrive with `/plugin update jev-planning`. To edit the rubric in
+   place instead, add the marketplace from a local clone
+   (`/plugin marketplace add /path/to/llm-plugins`): a local-directory marketplace loads
+   the plugin from the checkout, so edits apply on the next plan-mode exit.
+
+   **Wire by path** (no plugin machinery; edits apply instantly): clone this repo and add
+   the hook to `~/.claude/settings.json`, merging into an existing `hooks` block if you have one:
 
    ```json
    "hooks": {
@@ -85,7 +100,7 @@ Not a marketplace install yet: it is wired by path, so edits apply instantly.
    ```
 
    Forward slashes work on Windows too.
-4. Tell Claude the plan shape, so the first plan is scoreable. Put this in `~/.claude/CLAUDE.md`
+3. Tell Claude the plan shape, so the first plan is scoreable. Put this in `~/.claude/CLAUDE.md`
    (global) or a project's `CLAUDE.md`:
 
    ```markdown
