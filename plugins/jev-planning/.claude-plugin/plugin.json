@@ -10,5 +10,14 @@
   },
   "repository": "https://github.com/hadi-khir/llm-plugins",
   "license": "MIT",
-  "keywords": ["hook", "planning", "typesafe", "jev"]
+  "keywords": ["hook", "planning", "typesafe", "jev"],
+  "userConfig": {
+    "typesafe_api_key": {
+      "type": "string",
+      "title": "TypeSafe API key",
+      "description": "From https://console.typesafe.ai. Sent only to api.typesafe.ai; kept in Claude Code's secure storage.",
+      "sensitive": true,
+      "required": true
+    }
+  }
 }

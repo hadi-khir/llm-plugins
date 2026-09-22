@@ -166,10 +166,14 @@ def build_questions(state, rubric, extras):
 
 
 def ask_jev(state, questions, model):
-    """One POST carrying every question; retries 429/529 twice, fails fast on anything else."""
-    key = os.environ.get("TYPESAFE_API_KEY")
+    """One POST carrying every question; retries 429/529 twice, fails fast on anything else.
+
+    The key arrives as ``CLAUDE_PLUGIN_OPTION_TYPESAFE_API_KEY`` when the plugin's enable-time
+    prompt supplied it, or as ``TYPESAFE_API_KEY`` when the hook is wired by path.
+    """
+    key = os.environ.get("CLAUDE_PLUGIN_OPTION_TYPESAFE_API_KEY") or os.environ.get("TYPESAFE_API_KEY")
     if not key:
-        raise JevUnavailable("TYPESAFE_API_KEY is not set")
+        raise JevUnavailable("no API key: set TYPESAFE_API_KEY, or enter it when enabling the plugin")
     body = json.dumps({"state": state, "model": model, "questions": questions}).encode("utf-8")
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     for attempt in range(3):

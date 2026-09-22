@@ -149,8 +149,10 @@ Hook entry:
 }]}]}
 ```
 
-`TYPESAFE_API_KEY` comes from the user environment. The hook reads it from
-`os.environ` only.
+The key reaches the hook only through its environment: as
+`CLAUDE_PLUGIN_OPTION_TYPESAFE_API_KEY` when the plugin's `userConfig` prompt
+supplied it at enable time (sensitive, kept in Claude Code's secure storage),
+or as `TYPESAFE_API_KEY` when the hook is wired by path. The plugin ships no key.
 
 lambda-argus extras (`.claude/jev-rubric.json`):
 

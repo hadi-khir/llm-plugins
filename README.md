@@ -64,10 +64,8 @@ Design and question wording: `docs/superpowers/specs/2026-09-22-jev-plan-gate-de
 
 Python 3.9+ on `PATH`; no packages to install.
 
-1. Get an API key from the [TypeSafe console](https://console.typesafe.ai) and set it as a
-   user environment variable named `TYPESAFE_API_KEY`, then restart Claude Code so the hook
-   process inherits it (Windows: `setx TYPESAFE_API_KEY <key>`; macOS/Linux: export it
-   from your shell profile).
+1. Get an API key from the [TypeSafe console](https://console.typesafe.ai). Every user
+   needs their own; the plugin ships none.
 2. Install the hook **one** of two ways, never both (two copies would score every plan twice
    and burn the bounce cap at double speed):
 
@@ -78,13 +76,18 @@ Python 3.9+ on `PATH`; no packages to install.
    /plugin install jev-planning@hadi-plugins
    ```
 
-   Rubric changes then arrive with `/plugin update jev-planning`. To edit the rubric in
-   place instead, add the marketplace from a local clone
+   Claude Code prompts for the API key when it enables the plugin and keeps it in its
+   secure storage, never in `settings.json`; the hook receives it in its environment. No
+   env var to set. Rubric changes arrive with `/plugin update jev-planning`. To edit the
+   rubric in place instead, add the marketplace from a local clone
    (`/plugin marketplace add /path/to/llm-plugins`): a local-directory marketplace loads
    the plugin from the checkout, so edits apply on the next plan-mode exit.
 
-   **Wire by path** (no plugin machinery; edits apply instantly): clone this repo and add
-   the hook to `~/.claude/settings.json`, merging into an existing `hooks` block if you have one:
+   **Wire by path** (no plugin machinery; edits apply instantly): set the key as a user
+   environment variable named `TYPESAFE_API_KEY` and restart Claude Code so the hook
+   process inherits it (Windows: `setx TYPESAFE_API_KEY <key>`; macOS/Linux: export it
+   from your shell profile). Then clone this repo and add the hook to
+   `~/.claude/settings.json`, merging into an existing `hooks` block if you have one:
 
    ```json
    "hooks": {
@@ -117,9 +120,9 @@ Python 3.9+ on `PATH`; no packages to install.
 
 #### Check it works
 
-Before the key is set, the hook fails open: every plan passes and stderr shows
-`Jev plan gate: skipped (TYPESAFE_API_KEY is not set)`. With the key set, score any plan
-file from the command line without going through Claude:
+Without a key the hook fails open: every plan passes and stderr shows
+`Jev plan gate: skipped (no API key: ...)`. With `TYPESAFE_API_KEY` in your shell, score
+any plan file from the command line without going through Claude:
 
 ```bash
 python plugins/jev-planning/hooks/plan_gate.py --dry-run my_plan.md "the request as you typed it"

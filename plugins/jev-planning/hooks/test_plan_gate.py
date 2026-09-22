@@ -183,5 +183,21 @@ class Hook(unittest.TestCase):
         self.assertIn("TYPESAFE_API_KEY", err)
 
 
+class Auth(unittest.TestCase):
+    def test_plugin_option_key_is_sent_as_bearer(self):
+        sent = {}
+
+        def fake_urlopen(req, timeout):
+            sent["auth"] = req.get_header("Authorization")
+            return io.BytesIO(json.dumps({"answers": {}}).encode("utf-8"))
+
+        env = {"CLAUDE_PLUGIN_OPTION_TYPESAFE_API_KEY": "k-123"}
+        with mock.patch.dict(plan_gate.os.environ, env, clear=True), \
+                mock.patch.object(plan_gate.urllib.request, "urlopen", fake_urlopen):
+            answers = plan_gate.ask_jev({"request": "x"}, {}, "jev-latest")
+        self.assertEqual(answers, {})
+        self.assertEqual(sent["auth"], "Bearer k-123")
+
+
 if __name__ == "__main__":
     unittest.main()
