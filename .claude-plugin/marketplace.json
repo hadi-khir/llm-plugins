@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
   "name": "hadi-plugins",
   "description": "Claude Code plugins by Hadi Khir",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "owner": {
     "name": "Hadi Khir",
     "email": "khir.hadi@gmail.com",
@@ -23,6 +23,16 @@
       "name": "jev-planning",
       "source": "./plugins/jev-planning",
       "description": "Scores every plan-mode plan with TypeSafe's Jev before Claude may leave plan mode, and bounces weak plans back with the failing items.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Hadi Khir",
+        "email": "khir.hadi@gmail.com"
+      }
+    },
+    {
+      "name": "session-memory",
+      "source": "./plugins/session-memory",
+      "description": "Summarizes every session with Haiku into a local SQLite full-text store; new sessions see their project's recent history and a search command.",
       "version": "0.1.0",
       "author": {
         "name": "Hadi Khir",

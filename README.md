@@ -10,6 +10,7 @@ Add the marketplace (once), then install a plugin:
 /plugin marketplace add hadi-khir/llm-plugins
 /plugin install trad-coding@hadi-plugins
 /plugin install jev-planning@hadi-plugins
+/plugin install session-memory@hadi-plugins
 ```
 
 ## Plugins
@@ -156,6 +157,60 @@ python -m unittest plugins/jev-planning/hooks/test_plan_gate.py
   plan-approval flow is untouched.
 - Loop forever: after three bounces in a session the plan goes to you with the open
   findings, and the counter resets.
+
+### session-memory
+
+A searchable memory of your past Claude Code sessions. When a session ends (or compacts),
+a background worker reads its transcript, keeps your prompts, Claude's replies and one line
+per tool call, redacts secrets, and has Haiku fold it into a short summary: goal, outcome,
+decisions, artifacts, open threads, topics. Summaries land in a local SQLite full-text store
+at `~/.claude/session-memory/sessions.db`. Each new session is told its project's five most
+recent sessions and how to search the rest.
+
+- **Key:** `<date>__<project>__<title-slug>`, e.g.
+  `2026-10-13__lambda-argus__local-conversation-memory-store`. The row's identity is the
+  session id, so a renamed or resumed session updates its own row.
+- **Incremental:** a resumed or compacted session sends only its new part, merged into the
+  existing summary.
+- **Catch-up:** every session start sweeps transcripts that grew since their last summary
+  (crashes, closed terminals) and backfills old ones on first run, newest first.
+- **No loops:** the Haiku call is `claude -p` with hooks, tools and MCP off and no
+  transcript written.
+
+#### Setup
+
+Python 3.9+ and the `claude` CLI on `PATH`; no packages to install.
+
+```
+/plugin install session-memory@hadi-plugins
+```
+
+Claude Code deletes transcripts 30 days after their last activity. To keep the raw
+transcripts as long as the summaries, set `"cleanupPeriodDays": 365` in
+`~/.claude/settings.json`.
+
+#### Use it
+
+```bash
+python <plugin>/hooks/sessmem.py search echoguard tee      # ranked, any of the words
+python <plugin>/hooks/sessmem.py show 2026-10-13__lambda   # key, key prefix or session id prefix
+python <plugin>/hooks/sessmem.py recent --project lambda-argus
+python <plugin>/hooks/sessmem.py sweep                     # summarize everything idle now
+```
+
+Claude gets the exact path in its session-start context, so asking "what did we decide
+about X last week?" is enough. Worker failures go to `~/.claude/session-memory/worker.log`
+and are retried by the next sweep. Tests (Haiku replaced by a fake):
+
+```bash
+python -m unittest plugins/session-memory/hooks/test_sessmem.py
+```
+
+#### What it costs
+
+One Haiku call per session (more for sessions over ~30k tokens of conversation), billed
+to whatever account `claude` is logged in to. Sessions with fewer than three prompts are
+stored by title only, with no call.
 
 ## License
 
