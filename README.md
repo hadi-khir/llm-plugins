@@ -206,6 +206,25 @@ and are retried by the next sweep. Tests (Haiku replaced by a fake):
 python -m unittest plugins/session-memory/hooks/test_sessmem.py
 ```
 
+#### Share it across laptops
+
+Clone one private git repo to `~/claude-brain` on every laptop (`SESSMEM_BRAIN` overrides the
+path). Its `.gitattributes` needs `MEMORY.md merge=union`. Then each summary is also written to
+`sessions/` there, session start pulls and loads the other laptops' sessions, and the workers
+commit and push after summarizing. To share a project's Claude Code memory notes too, run
+`link` once per project on each laptop:
+
+```bash
+cd ~/repos/lambda-argus && python <plugin>/hooks/sessmem.py link   # memory/lambda-argus/
+python <plugin>/hooks/sessmem.py link ~ --name home                # sessions started in ~
+python <plugin>/hooks/sessmem.py sync                              # push now, e.g. before switching laptops
+```
+
+`link` merges the existing notes into the brain and replaces Claude Code's memory folder for that
+project with a link to it (a junction on Windows), so every laptop, worktree and running session
+uses the same notes. The old folder stays as `memory.pre-brain`. A note edited on two laptops at
+once needs a manual merge in the clone; until then sync fails into `worker.log`.
+
 #### What it costs
 
 One Haiku call per session (more for sessions over ~30k tokens of conversation), billed

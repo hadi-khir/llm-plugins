@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -146,6 +147,92 @@ class IndexTests(StoreCase):
             sessmem.index(self.transcript)
         call.assert_called_once()
         self.assertIn("watchdog added", self.run_cli("show", SID))
+
+
+class BrainTests(StoreCase):
+    """Two laptops sharing one brain: clones of a local bare repo, each with its own store."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = Path(self.tmp.name)
+        config = self.root / "gitconfig"
+        config.write_text("[user]\n\tname = t\n\temail = t@example.com\n")
+        self.git_env = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(config),
+                                                    "GIT_CONFIG_NOSYSTEM": "1"})
+        self.git_env.start()
+        seed = self.root / "seed"
+        sessmem.git(self.root, "init", "-q", "-b", "main", str(seed))
+        (seed / ".gitattributes").write_text("MEMORY.md merge=union\n")
+        (seed / "memory" / "p").mkdir(parents=True)
+        (seed / "memory" / "p" / "MEMORY.md").write_text("- [Base](base.md) - first\n")
+        sessmem.git(seed, "add", "-A")
+        sessmem.git(seed, "commit", "-q", "-m", "seed")
+        self.origin = self.root / "origin.git"
+        sessmem.git(self.root, "clone", "-q", "--bare", str(seed), str(self.origin))
+
+    def tearDown(self):
+        self.git_env.stop()
+        super().tearDown()
+
+    def laptop(self, name):
+        clone = self.root / name / "brain"
+        sessmem.git(self.root, "clone", "-q", str(self.origin), str(clone))
+        return clone
+
+    def on(self, clone):
+        return mock.patch.dict(os.environ, {"SESSMEM_HOME": str(clone.parent / "store"),
+                                            sessmem.BRAIN_ENV: str(clone)})
+
+    def test_session_summarized_on_one_laptop_is_searchable_on_another(self):
+        a, b = self.laptop("a"), self.laptop("b")
+        self.write(SESSION)
+        with self.on(a), mock.patch.object(sessmem, "summarize", side_effect=fake_summary):
+            sessmem.index(self.transcript)
+            sessmem.sync()
+        self.transcript.unlink()
+        with self.on(b):
+            sessmem.refresh()
+            self.assertIn("2026-10-12__lambda-argus__echoguard-tee-storm", self.run_cli("search", "watchdog"))
+
+    def test_import_keeps_this_laptops_own_row(self):
+        a = self.laptop("a")
+        self.write(SESSION)
+        with self.on(a), mock.patch.object(sessmem, "summarize", side_effect=fake_summary):
+            sessmem.index(self.transcript)
+            sessmem.sync()
+            copy = next((a / "sessions").glob("*.md"))
+            stale = copy.read_text(encoding="utf-8").replace("watchdog added", "stale")
+            copy.write_text(stale.replace("updated_at: ", "updated_at: 1999"), encoding="utf-8")
+            with sessmem.store() as db:
+                sessmem.import_sessions(db, a)
+            self.assertIn("watchdog added", self.run_cli("show", SID))
+
+    def test_index_lines_added_on_two_laptops_both_survive(self):
+        a, b = self.laptop("a"), self.laptop("b")
+        for clone, line in ((a, "- [Radar](radar.md) - tee\n"), (b, "- [Hub](hub.md) - dev\n")):
+            with open(clone / "memory" / "p" / "MEMORY.md", "a", encoding="utf-8") as f:
+                f.write(line)
+        for clone in (a, b, a):
+            with self.on(clone):
+                sessmem.sync()
+        for clone in (a, b):
+            index = (clone / "memory" / "p" / "MEMORY.md").read_text(encoding="utf-8")
+            self.assertIn("Radar", index)
+            self.assertIn("Hub", index)
+
+    def test_link_moves_notes_into_the_brain_and_points_claude_there(self):
+        a = self.laptop("a")
+        repo = self.root / "repos" / "argus"
+        repo.mkdir(parents=True)
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(repo.resolve()))
+        notes = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / slug / "memory"
+        notes.mkdir(parents=True)
+        (notes / "tee.md").write_text("tee facts\n")
+        with self.on(a), contextlib.redirect_stdout(io.StringIO()):
+            sessmem.link(str(repo))
+        self.assertEqual(os.path.realpath(notes), os.path.realpath(a / "memory" / "argus"))
+        self.assertEqual((notes / "tee.md").read_text(), "tee facts\n")
+        self.assertTrue((notes.parent / "memory.pre-brain" / "tee.md").is_file())
 
 
 class HookTests(StoreCase):

@@ -6,7 +6,7 @@
           {
             "type": "command",
             "timeout": 15,
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}\"/hooks/sessmem.py hook-start"
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/sessmem.py\" hook-start"
           }
         ]
       }
@@ -17,7 +17,7 @@
           {
             "type": "command",
             "timeout": 5,
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}\"/hooks/sessmem.py hook-end"
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/sessmem.py\" hook-end"
           }
         ]
       }
@@ -28,7 +28,7 @@
           {
             "type": "command",
             "timeout": 10,
-            "command": "python \"${CLAUDE_PLUGIN_ROOT}\"/hooks/sessmem.py hook-end"
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/hooks/sessmem.py\" hook-end"
           }
         ]
       }

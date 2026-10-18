@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "jev-planning",
   "displayName": "Jev Plan Gate",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scores every plan-mode plan with TypeSafe's Jev before Claude may leave plan mode: ranks the candidate approaches, checks each step against the request, and bounces weak plans back with the failing items.",
   "author": {
     "name": "Hadi Khir",

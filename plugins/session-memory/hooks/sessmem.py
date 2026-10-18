@@ -17,12 +17,20 @@ so the next sweep retries it.
 CLI for people and agents: ``sessmem.py search <words>``, ``show <key>``,
 ``recent [--project P]``. The store lives in ``~/.claude/session-memory``
 (``SESSMEM_HOME`` overrides it).
+
+When a git clone of a shared "brain" repo sits at ``~/claude-brain``
+(``SESSMEM_BRAIN`` overrides it), laptops share one memory through it. Every
+summary is also written to ``sessions/`` there, other laptops' summaries are
+loaded into the local store, and ``link`` points a project's Claude Code
+memory folder at the brain's ``memory/<project>``. Session start pulls; the
+workers commit and push after summarizing.
 """
 
 import argparse
 import contextlib
 import json
 import os
+import platform
 import re
 import shutil
 import sqlite3
@@ -44,6 +52,12 @@ LOCK_STALE_SECONDS = 30 * 60
 SUMMARY_TIMEOUT = 300
 RECENT_AT_START = 5
 LOG_MAX_BYTES = 1_000_000
+BRAIN_ENV = "SESSMEM_BRAIN"
+GIT_TIMEOUT = 10
+
+COLUMNS = ("session_id", "key", "started", "ended", "project", "branch", "cwd", "title", "topics",
+           "prs", "summary", "prompts", "transcript", "bytes_seen", "updated_at")
+FILE_FIELDS = tuple(c for c in COLUMNS if c not in ("summary", "bytes_seen"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -276,15 +290,23 @@ def split_topics(summary):
 def upsert(db, session_id, path, meta, summary, topics):
     title = title_of(meta)
     project = project_of(meta["cwd"])
-    key = f"{local_date(meta['started'])}__{project}__{slug(title)}"
-    row = (session_id, key, meta["started"], meta["ended"], project, meta["branch"], meta["cwd"],
-           title, topics, " ".join(meta["prs"]), summary, meta["prompts"], str(path), meta["size"],
-           datetime.now().astimezone().isoformat(timespec="seconds"))
+    store_row(db, {
+        "session_id": session_id, "key": f"{local_date(meta['started'])}__{project}__{slug(title)}",
+        "started": meta["started"], "ended": meta["ended"], "project": project,
+        "branch": meta["branch"], "cwd": meta["cwd"], "title": title, "topics": topics,
+        "prs": " ".join(meta["prs"]), "summary": summary, "prompts": meta["prompts"],
+        "transcript": str(path), "bytes_seen": meta["size"],
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    })
+
+
+def store_row(db, row):
     with db:
-        db.execute("INSERT OR REPLACE INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
-        db.execute("DELETE FROM sessions_fts WHERE session_id = ?", (session_id,))
+        db.execute(f"INSERT OR REPLACE INTO sessions ({', '.join(COLUMNS)}) "
+                   f"VALUES ({', '.join('?' * len(COLUMNS))})", [row.get(c) for c in COLUMNS])
+        db.execute("DELETE FROM sessions_fts WHERE session_id = ?", (row["session_id"],))
         db.execute("INSERT INTO sessions_fts VALUES (?,?,?,?,?,?)",
-                   (session_id, key, title, topics, summary, project))
+                   tuple(row[c] for c in ("session_id", "key", "title", "topics", "summary", "project")))
 
 
 @contextlib.contextmanager
@@ -371,6 +393,176 @@ def logged(fn, *args):
             f.write(traceback.format_exc() + "\n")
 
 
+# --- brain: the git repo shared by every laptop -------------------------------
+
+
+def brain():
+    """The brain clone, or None when this laptop has none."""
+    path = Path(os.environ.get(BRAIN_ENV) or Path.home() / "claude-brain")
+    return path if (path / ".git").exists() else None
+
+
+def git(root, *args):
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True,
+                            encoding="utf-8", timeout=GIT_TIMEOUT, creationflags=flags,
+                            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)} exited {result.returncode}: {result.stderr.strip()[:500]}")
+    return result.stdout
+
+
+def pull(root):
+    """Rebase onto the other laptops' pushes; a conflict leaves the tree as it was.
+
+    ``MEMORY.md`` merges by union (the brain's ``.gitattributes``), so index lines
+    added on two laptops both survive.
+    """
+    try:
+        git(root, "pull", "--rebase", "--autostash", "--quiet")
+    except RuntimeError:
+        with contextlib.suppress(RuntimeError):
+            git(root, "rebase", "--abort")
+        raise  # ponytail: the same note edited on two laptops needs a manual merge in the brain clone
+
+
+def session_file(root, row):
+    return root / "sessions" / f"{row['key']}__{row['session_id']}.md"
+
+
+def render_session(row):
+    head = [f"{c}: {' '.join(str(row[c] or '').split())}" for c in FILE_FIELDS]
+    return "---\n" + "\n".join(head) + f"\nhost: {platform.node()}\n---\n\n{row['summary']}\n"
+
+
+def parse_session(text):
+    head, _, body = text.partition("\n---\n")
+    row = {}
+    for line in head.splitlines()[1:]:
+        name, _, value = line.partition(":")
+        row[name.strip()] = value.strip()
+    row["prompts"] = int(row.get("prompts") or 0)
+    row["summary"] = body.strip()
+    row["bytes_seen"] = 0
+    return row
+
+
+def export_sessions(db, root):
+    """Write every summarized session whose transcript is on this laptop to ``sessions/``."""
+    folder = root / "sessions"
+    folder.mkdir(exist_ok=True)
+    for row in db.execute("SELECT * FROM sessions WHERE summary != ''").fetchall():
+        if not Path(row["transcript"] or "").is_file():
+            continue
+        path, text = session_file(root, row), render_session(row)
+        for old in folder.glob(f"*__{row['session_id']}.md"):
+            if old != path:
+                old.unlink()
+        if not path.exists() or path.read_text(encoding="utf-8") != text:
+            path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def import_sessions(db, root):
+    """Load the other laptops' sessions into this store.
+
+    A file whose transcript is on this laptop is skipped: the local row is the
+    newer one, and replacing it would reset its byte offset.
+    """
+    stamps = dict(db.execute("SELECT session_id, updated_at FROM sessions").fetchall())
+    for path in sorted((root / "sessions").glob("*.md")):
+        row = parse_session(path.read_text(encoding="utf-8"))
+        if Path(row.get("transcript") or "").is_file() or stamps.get(row["session_id"]) == row.get("updated_at"):
+            continue
+        store_row(db, row)
+
+
+def refresh():
+    """Pull the brain and load what other laptops pushed."""
+    root = brain()
+    if not root:
+        return
+    with lock("brain") as held:
+        if not held:
+            return
+        pull(root)
+        with store() as db:
+            import_sessions(db, root)
+
+
+def sync():
+    """Commit this laptop's sessions and notes to the brain, pull, push, and load the rest."""
+    root = brain()
+    if not root:
+        return
+    with lock("brain") as held:
+        if not held:
+            return
+        with store() as db:
+            export_sessions(db, root)
+        git(root, "add", "-A")
+        if git(root, "status", "--porcelain").strip():
+            git(root, "commit", "--quiet", "-m", f"sync from {platform.node()}")
+        pull(root)
+        git(root, "push", "--quiet")
+        with store() as db:
+            import_sessions(db, root)
+
+
+def checkout_root(path):
+    """The main checkout for a path in a repo or worktree, else the path itself."""
+    try:
+        return Path(git(path, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()).parent
+    except (RuntimeError, OSError):
+        return Path(path).resolve()
+
+
+def merge_notes(src, dst):
+    """Copy notes into the brain; a different version of an existing note lands beside it."""
+    for note in src.iterdir():
+        if not note.is_file():
+            continue
+        target = dst / note.name
+        if not target.exists():
+            shutil.copy2(note, target)
+        elif note.name == "MEMORY.md":
+            have = target.read_text(encoding="utf-8").splitlines()
+            extra = [line for line in note.read_text(encoding="utf-8").splitlines() if line not in have]
+            target.write_text("\n".join(have + extra) + "\n", encoding="utf-8", newline="\n")
+        elif target.read_text(encoding="utf-8") != note.read_text(encoding="utf-8"):
+            shutil.copy2(note, dst / f"{note.stem}.{platform.node()}{note.suffix}")
+
+
+def link(path, name=None):
+    """Point a project's Claude Code memory folder at the brain's ``memory/<name>``.
+
+    Claude Code keeps a project's notes in ``projects/<slug>/memory``, the slug
+    being the main checkout's path, so it differs per laptop and worktrees share
+    it. A link there gives every laptop, worktree and running session the same
+    notes. Existing notes are merged into the brain first and the old folder is
+    kept as ``memory.pre-brain``.
+    """
+    root = brain()
+    if not root:
+        raise SystemExit(f"no brain clone found; clone it to ~/claude-brain or set {BRAIN_ENV}")
+    checkout = checkout_root(path)
+    notes = claude_dir() / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(checkout)) / "memory"
+    target = root / "memory" / (name or checkout.name)
+    target.mkdir(parents=True, exist_ok=True)
+    if os.path.realpath(notes) == os.path.realpath(target):
+        print(f"already linked: {notes} -> {target}")
+        return
+    if notes.exists():
+        merge_notes(notes, target)
+        notes.rename(notes.with_name("memory.pre-brain"))
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(notes), str(target)], check=True,
+                       capture_output=True)
+    else:
+        notes.symlink_to(target, target_is_directory=True)
+    print(f"linked: {notes} -> {target}")
+
+
 # --- hooks --------------------------------------------------------------------
 
 
@@ -426,6 +618,7 @@ def hook_end(payload):
 def hook_start(payload):
     if os.environ.get(CHILD_ENV):
         return
+    logged(refresh)
     spawn("sweep", "--skip", payload.get("session_id") or "")
     project = project_of(payload.get("cwd"))
     with store() as db:
@@ -481,6 +674,10 @@ def main(argv=None):
     p.add_argument("transcript")
     p = sub.add_parser("sweep", help="summarize every idle transcript that grew")
     p.add_argument("--skip", default="")
+    sub.add_parser("sync", help="commit, pull and push the brain repo now")
+    p = sub.add_parser("link", help="share a project's Claude Code memory through the brain")
+    p.add_argument("path", nargs="?", default=".")
+    p.add_argument("--name", help="folder under memory/ (default: the checkout's folder name)")
     sub.add_parser("hook-start")
     sub.add_parser("hook-end")
     args = parser.parse_args(argv)
@@ -490,8 +687,14 @@ def main(argv=None):
         (hook_start if args.cmd == "hook-start" else hook_end)(payload)
     elif args.cmd == "index":
         logged(index, args.transcript)
+        logged(sync)
     elif args.cmd == "sweep":
         logged(sweep, args.skip)
+        logged(sync)
+    elif args.cmd == "sync":
+        sync()
+    elif args.cmd == "link":
+        link(args.path, args.name)
     elif args.cmd == "search":
         search(args.words, args.project, args.limit)
     elif args.cmd == "show":
