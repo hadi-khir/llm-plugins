@@ -209,8 +209,8 @@ python -m unittest plugins/session-memory/hooks/test_sessmem.py
 #### What it costs
 
 One Haiku call per session (more for sessions over ~30k tokens of conversation), billed
-to whatever account `claude` is logged in to. Sessions with fewer than three prompts are
-stored by title only, with no call.
+to whatever account `claude` is logged in to. Sessions with fewer than three prompts and
+under 1,000 characters of conversation are stored by title only, with no call.
 
 ## License
 

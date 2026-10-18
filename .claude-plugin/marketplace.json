@@ -33,7 +33,7 @@
       "name": "session-memory",
       "source": "./plugins/session-memory",
       "description": "Summarizes every session with Haiku into a local SQLite full-text store; new sessions see their project's recent history and a search command.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Hadi Khir",
         "email": "khir.hadi@gmail.com"

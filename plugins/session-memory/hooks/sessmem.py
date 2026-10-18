@@ -35,6 +35,7 @@ from pathlib import Path
 
 CHILD_ENV = "SESSMEM_CHILD"
 MIN_PROMPTS = 3
+MIN_TEXT_CHARS = 1_000
 CHUNK_CHARS = 120_000  # ponytail: ~30k tokens per Haiku call, folded in sequence; parallel map-reduce if long sessions get slow
 BLOCK_CHARS = 4_000
 TOOL_ARG_CHARS = 160
@@ -309,8 +310,10 @@ def lock(name):
 def index(path):
     """Fold the transcript's new text into its stored summary.
 
-    A session that has never been summarized (too short so far) is re-read
-    from the start, so its early prompts are not lost once it grows.
+    A session is summarized once it has a few prompts or enough conversation
+    text, so a long session driven by one prompt counts and a ``/clear`` stub
+    does not. One never summarized (too short so far) is re-read from the
+    start, so its early prompts are not lost once it grows.
     """
     path = Path(path)
     session_id = path.stem
@@ -323,7 +326,8 @@ def index(path):
         if seen >= path.stat().st_size:
             return
         meta = parse(path, seen if summary else 0)
-        if meta["prompts"] >= MIN_PROMPTS and meta["text"].strip():
+        substantial = meta["prompts"] >= MIN_PROMPTS or len(meta["text"]) >= MIN_TEXT_CHARS
+        if substantial and meta["text"].strip():
             current = f"{summary}\nTOPICS: {topics}" if summary else ""
             for chunk in chunks(redact(meta["text"])):
                 current = summarize(build_prompt(current, chunk, meta))

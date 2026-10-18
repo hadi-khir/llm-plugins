@@ -140,6 +140,13 @@ class IndexTests(StoreCase):
             self.assertEqual(sessmem.recent(db, None, 5), [])
         self.assertIn("too short", self.run_cli("show", SID))
 
+    def test_long_single_prompt_session_is_summarized(self):
+        self.write([user("audit the repo"), claude({"type": "text", "text": "finding " * 200})])
+        with mock.patch.object(sessmem, "summarize", side_effect=fake_summary) as call:
+            sessmem.index(self.transcript)
+        call.assert_called_once()
+        self.assertIn("watchdog added", self.run_cli("show", SID))
+
 
 class HookTests(StoreCase):
     def test_session_end_inside_the_summarizer_spawns_nothing(self):
