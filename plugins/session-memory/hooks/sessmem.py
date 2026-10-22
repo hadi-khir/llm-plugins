@@ -447,6 +447,12 @@ def parse_session(text):
     return row
 
 
+def write_lf(path, text):
+    # Path.write_text(newline=) needs Python 3.10; macOS ships 3.9
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+
 def export_sessions(db, root):
     """Write every summarized session whose transcript is on this laptop to ``sessions/``."""
     folder = root / "sessions"
@@ -459,7 +465,7 @@ def export_sessions(db, root):
             if old != path:
                 old.unlink()
         if not path.exists() or path.read_text(encoding="utf-8") != text:
-            path.write_text(text, encoding="utf-8", newline="\n")
+            write_lf(path, text)
 
 
 def import_sessions(db, root):
@@ -527,7 +533,7 @@ def merge_notes(src, dst):
         elif note.name == "MEMORY.md":
             have = target.read_text(encoding="utf-8").splitlines()
             extra = [line for line in note.read_text(encoding="utf-8").splitlines() if line not in have]
-            target.write_text("\n".join(have + extra) + "\n", encoding="utf-8", newline="\n")
+            write_lf(target, "\n".join(have + extra) + "\n")
         elif target.read_text(encoding="utf-8") != note.read_text(encoding="utf-8"):
             shutil.copy2(note, dst / f"{note.stem}.{platform.node()}{note.suffix}")
 
