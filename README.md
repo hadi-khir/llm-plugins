@@ -11,6 +11,7 @@ Add the marketplace (once), then install a plugin:
 /plugin install trad-coding@hadi-plugins
 /plugin install jev-planning@hadi-plugins
 /plugin install session-memory@hadi-plugins
+/plugin install delegate@hadi-plugins
 ```
 
 ## Plugins
@@ -234,3 +235,28 @@ under 1,000 characters of conversation are stored by title only, with no call.
 ## License
 
 MIT
+
+### delegate
+
+Plan with your main model (for example Opus), then hand the implementation to cheaper or local
+models. Say "plan this, then delegate" or run `/delegate`. Claude splits the plan into small tasks with
+a named file list and a Verify command, shows you the list, then runs each task as a separate
+[OpenCode](https://opencode.ai) process in its own git worktree, several at once when they are
+independent. It reads every diff and runs the checks itself, sends weak work back with feedback,
+and merges only what passes.
+
+Needs `git`, `bash` (on Windows: Git Bash or WSL) and OpenCode with a provider for your worker
+models in `~/.config/opencode/opencode.json`. Then create `~/.config/delegate/env`:
+
+```bash
+DELEGATE_PROVIDER=local            # provider id from opencode.json
+DELEGATE_MODEL=my-coder            # default worker model
+DELEGATE_STRONG_MODEL=my-big-model # optional: for tasks that fail twice
+DELEGATE_ALT_MODEL=my-coder-2      # optional: overflow when the default is busy
+DELEGATE_MAX_PARALLEL=2            # workers at once per model
+# export any key your opencode.json reads, e.g.
+# export MY_PROVIDER_KEY="$(cat ~/.config/my-provider/key)"
+```
+
+Check it with `~/.claude/plugins/cache/hadi-plugins/delegate/*/skills/delegate/scripts/delegate-run.sh --check`.
+Workers never commit; specs and logs live in `<repo>.delegate/` next to your repo, never inside it.
