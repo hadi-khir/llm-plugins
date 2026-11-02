@@ -314,6 +314,19 @@ class BrainTests(StoreCase):
         self.assertEqual((notes / "tee.md").read_text(), "tee facts\n")
         self.assertTrue((notes.parent / "memory.pre-brain" / "tee.md").is_file())
 
+    @unittest.skipIf(os.name == "nt", "a dangling junction needs mklink to set up")
+    def test_link_replaces_a_link_left_dangling_by_a_moved_clone(self):
+        a = self.laptop("a")
+        repo = self.root / "repos" / "argus"
+        repo.mkdir(parents=True)
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(repo.resolve()))
+        notes = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / slug / "memory"
+        notes.parent.mkdir(parents=True)
+        notes.symlink_to(self.root / "old-clone" / "memory" / "argus", target_is_directory=True)
+        with self.on(a), contextlib.redirect_stdout(io.StringIO()):
+            sessmem.link(str(repo))
+        self.assertEqual(os.path.realpath(notes), os.path.realpath(a / "memory" / "argus"))
+
     def test_brain_is_unified_llm_else_the_old_claude_brain(self):
         home = self.root / "home"
         for name in ("claude-brain", "unified-llm"):

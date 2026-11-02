@@ -642,6 +642,8 @@ def link(path, name=None):
     if notes.exists():
         merge_notes(notes, target)
         notes.rename(notes.with_name("memory.pre-brain"))
+    elif os.path.lexists(notes):  # a link left dangling when the brain clone moved
+        (os.rmdir if os.name == "nt" else os.unlink)(notes)  # rmdir drops a junction, not its target
     notes.parent.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
         subprocess.run(["cmd", "/c", "mklink", "/J", str(notes), str(target)], check=True,
