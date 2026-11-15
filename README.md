@@ -161,8 +161,8 @@ python -m unittest plugins/jev-planning/hooks/test_plan_gate.py
 
 ### session-memory
 
-A searchable memory of your past Claude Code sessions. When a session ends (or compacts),
-a background worker reads its transcript, keeps your prompts, Claude's replies and one line
+A searchable memory of your past Claude Code, Cursor and OpenCode sessions. When a session ends (or compacts),
+a background worker reads its transcript, keeps your prompts, the agent's replies and one line
 per tool call, redacts secrets, and has Haiku fold it into a short summary: goal, outcome,
 decisions, artifacts, open threads, topics. Summaries land in a local SQLite full-text store
 at `~/.claude/session-memory/sessions.db`. Each new session is told its project's five most
@@ -177,6 +177,16 @@ recent sessions and how to search the rest.
   (crashes, closed terminals) and backfills old ones on first run, newest first.
 - **No loops:** the Haiku call is `claude -p` with hooks, tools and MCP off and no
   transcript written.
+- **Cursor:** Cursor's agent loads Claude Code plugins from `~/.claude/plugins`, so installing
+  this once in Claude Code covers both. Cursor sessions are summarized from
+  `~/.cursor/projects/*/agent-transcripts` and marked "(Cursor)" in the recent list. Cursor
+  sessions also get the project's `MEMORY.md` index at start, which Claude Code loads by itself.
+  Cursor has to have third-party plugins turned on (the default).
+- **OpenCode:** OpenCode runs no Claude Code hooks, so `opencode/session-memory.js` stands in
+  for them (setup below). A session is exported with `opencode export` when it goes quiet (at
+  most every ten minutes), when it compacts and when OpenCode exits, then summarized like the
+  others and marked "(OpenCode)" in the recent list. Each OpenCode session gets the project's
+  recent sessions and `MEMORY.md` index in its system prompt.
 
 #### Setup
 
@@ -184,6 +194,15 @@ Python 3.9+ and the `claude` CLI on `PATH`; no packages to install.
 
 ```
 /plugin install session-memory@hadi-plugins
+```
+
+For OpenCode, after the install above, link the plugin file into OpenCode's global plugins
+folder (a copy works too; it then finds `sessmem.py` in the installed Claude Code plugin):
+
+```bash
+mkdir -p ~/.config/opencode/plugins
+ln -sf "$(ls -d ~/.claude/plugins/cache/hadi-plugins/session-memory/*/opencode/session-memory.js | tail -1)" \
+  ~/.config/opencode/plugins/session-memory.js
 ```
 
 Claude Code deletes transcripts 30 days after their last activity. To keep the raw
@@ -199,7 +218,7 @@ python <plugin>/hooks/sessmem.py recent --project lambda-argus
 python <plugin>/hooks/sessmem.py sweep                     # summarize everything idle now
 ```
 
-Claude gets the exact path in its session-start context, so asking "what did we decide
+The agent gets the exact path in its session-start context, so asking "what did we decide
 about X last week?" is enough. Worker failures go to `~/.claude/session-memory/worker.log`
 and are retried by the next sweep. Tests (Haiku replaced by a fake):
 
@@ -209,8 +228,8 @@ python -m unittest plugins/session-memory/hooks/test_sessmem.py
 
 #### Share it across laptops
 
-Clone one private git repo to `~/claude-brain` on every laptop (`SESSMEM_BRAIN` overrides the
-path). Its `.gitattributes` needs `MEMORY.md merge=union`. Then each summary is also written to
+Clone one private git repo to `~/unified-llm` on every laptop (`SESSMEM_BRAIN` overrides the
+path; an older clone at `~/claude-brain` still works). Its `.gitattributes` needs `MEMORY.md merge=union`. Then each summary is also written to
 `sessions/` there, session start pulls and loads the other laptops' sessions, and the workers
 commit and push after summarizing. To share a project's Claude Code memory notes too, run
 `link` once per project on each laptop:

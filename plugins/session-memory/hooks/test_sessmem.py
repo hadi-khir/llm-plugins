@@ -52,24 +52,80 @@ def fake_summary(prompt):
     return "**Goal:** fix tee\n**Outcome:** done - watchdog added\nTOPICS: radar, tee"
 
 
+CURSOR_ID = "f8013a37-a6f6-4da3-a4ef-e0e94dfb1319"
+
+
+def cursor_user(text):
+    return {"role": "user", "message": {"content": [{"type": "text", "text": (
+        f"<timestamp>Monday, Nov 2, 2026, 12:14 PM (UTC-5)</timestamp>\n<user_query>\n{text}\n</user_query>")}]}}
+
+
+def cursor_agent(text, tool=None):
+    content = [{"type": "text", "text": text}]
+    if tool:
+        content.append({"type": "tool_use", "name": "Shell", "input": {"command": tool}})
+    return {"role": "assistant", "message": {"content": content}}
+
+
+CURSOR_SESSION = [
+    cursor_user("why is the tunnel down"),
+    cursor_agent("Checking the ssh tunnel.", tool="ss -ltnp"),
+    {"type": "turn_ended", "status": "success"},
+    cursor_user("restart it"),
+    cursor_user("and add a systemd unit"),
+]
+
+
+OPENCODE_ID = "ses_e22bd825effeRAt2PKR11Fs5vk"
+
+
+def opencode_message(role, *parts, done=True):
+    time = {"created": 1794713484000, **({"completed": 1794713485000} if done and role == "assistant" else {})}
+    return {"info": {"role": role, "time": time}, "parts": list(parts)}
+
+
+def opencode_export(*messages, **info):
+    return {"info": {"id": OPENCODE_ID, "title": "Retry budget", "directory": "/home/me/repos/widget", **info},
+            "messages": [opencode_message("user", {"type": "text", "text": "raise the retry budget"},
+                                          {"type": "text", "text": "injected", "synthetic": True}),
+                         opencode_message("assistant", {"type": "reasoning", "text": "private"},
+                                          {"type": "tool", "tool": "edit", "state": {"input": {"filePath": "settings.toml"}}},
+                                          {"type": "text", "text": "Raised it to 5. " + "x" * 1000}),
+                         *messages]}
+
+
 class StoreCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.env = mock.patch.dict(os.environ, {"SESSMEM_HOME": str(root / "store"),
-                                                "CLAUDE_CONFIG_DIR": str(root / "claude")})
+                                                "CLAUDE_CONFIG_DIR": str(root / "claude"),
+                                                sessmem.BRAIN_ENV: str(root / "no-brain")})
         self.env.start()
+        self.cursor = mock.patch.object(sessmem, "cursor_dir", return_value=root / "cursor")
+        self.cursor.start()
         os.environ.pop(sessmem.CHILD_ENV, None)
         self.transcript = root / "claude" / "projects" / "proj" / f"{SID}.jsonl"
         self.transcript.parent.mkdir(parents=True)
 
     def tearDown(self):
+        self.cursor.stop()
         self.env.stop()
         self.tmp.cleanup()
 
-    def write(self, entries, mode="w"):
-        with open(self.transcript, mode, encoding="utf-8") as f:
+    def write(self, entries, mode="w", path=None):
+        path = path or self.transcript
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, mode, encoding="utf-8") as f:
             f.writelines(json.dumps(e) + "\n" for e in entries)
+
+    def cursor_transcript(self, slug="home-me-ops"):
+        return Path(self.tmp.name) / "cursor" / "projects" / slug / "agent-transcripts" / CURSOR_ID / f"{CURSOR_ID}.jsonl"
+
+    def cursor_payload(self, workspace, transcript=None):
+        return {"session_id": CURSOR_ID, "conversation_id": CURSOR_ID, "hook_event_name": "sessionStart",
+                "cursor_version": "2026.10.22", "workspace_roots": [str(workspace)],
+                "transcript_path": str(transcript or self.cursor_transcript())}
 
     def run_cli(self, *argv):
         out = io.StringIO()
@@ -83,7 +139,7 @@ class TranscriptTests(StoreCase):
         self.write(SESSION)
         meta = sessmem.parse(self.transcript, 0)
         self.assertIn("USER: fix the radar tee", meta["text"])
-        self.assertIn("CLAUDE: Looking at the tee.", meta["text"])
+        self.assertIn("AGENT: Looking at the tee.", meta["text"])
         self.assertIn("  [Edit] ops/tee.py", meta["text"])
         for dropped in ("injected context", "HUGE TOOL OUTPUT", "Launching skill", "private"):
             self.assertNotIn(dropped, meta["text"])
@@ -107,6 +163,33 @@ class TranscriptTests(StoreCase):
     def test_worktrees_fold_into_their_repo(self):
         self.assertEqual(sessmem.project_of(r"C:\r\lambda-argus\.claude\worktrees\x"), "lambda-argus")
         self.assertEqual(sessmem.project_of("/home/me/repos/oz/"), "oz")
+
+    def test_reads_cursor_transcripts(self):
+        path = self.cursor_transcript()
+        self.write(CURSOR_SESSION, path=path)
+        meta = sessmem.parse(path, 0)
+        self.assertIn("USER: why is the tunnel down\nAGENT: Checking the ssh tunnel.\n  [Shell] ss -ltnp",
+                      meta["text"])
+        for dropped in ("<timestamp>", "Nov 2", "user_query", "turn_ended"):
+            self.assertNotIn(dropped, meta["text"])
+        self.assertEqual(meta["prompts"], 3)
+        self.assertEqual(sessmem.title_of(meta), "why is the tunnel down")
+
+    def test_cursor_project_folder_is_found_from_its_slug(self):
+        disk = Path(self.tmp.name) / "disk"
+        (disk / "home" / "me" / "my.repo").mkdir(parents=True)
+        (disk / "home" / "me" / "my").mkdir()  # a decoy that matches only part of the slug
+        path = self.cursor_transcript("home-me-my-repo")
+        self.assertEqual(sessmem.cursor_workspace(path, root=disk), str(disk / "home" / "me" / "my.repo"))
+        self.assertIsNone(sessmem.cursor_workspace(self.cursor_transcript("home-me-gone"), root=disk))
+        self.assertIsNone(sessmem.cursor_workspace(self.transcript, root=disk))
+
+    def test_sweep_sees_cursor_transcripts_but_not_their_subagents(self):
+        self.write(SESSION)
+        main = self.cursor_transcript()
+        self.write(CURSOR_SESSION, path=main)
+        self.write(CURSOR_SESSION, path=main.parent / "subagent-1.jsonl")
+        self.assertEqual(sorted(sessmem.transcripts()), sorted([self.transcript, main]))
 
 
 class IndexTests(StoreCase):
@@ -147,6 +230,54 @@ class IndexTests(StoreCase):
             sessmem.index(self.transcript)
         call.assert_called_once()
         self.assertIn("watchdog added", self.run_cli("show", SID))
+
+    def test_cursor_session_takes_its_folder_and_start_from_the_hook(self):
+        path = self.cursor_transcript()
+        self.write(CURSOR_SESSION, path=path)
+        workspace = Path(self.tmp.name) / "repos" / "ops-box"
+        with mock.patch.object(sessmem, "spawn"), contextlib.redirect_stdout(io.StringIO()):
+            sessmem.hook_start(self.cursor_payload(workspace, path))
+        with mock.patch.object(sessmem, "summarize", side_effect=fake_summary) as call:
+            sessmem.index(path)
+        self.assertIn("ss -ltnp", call.call_args.args[0])
+        with sessmem.store() as db:
+            row = sessmem.recent(db, "ops-box", 5)[0]
+        self.assertEqual(row["cwd"], str(workspace))
+        self.assertTrue(row["key"].endswith("__ops-box__why-is-the-tunnel-down"))
+        self.assertNotIn("unknown-date", row["key"])
+
+
+    def export_opencode(self, export):
+        done = mock.Mock(returncode=0, stdout=json.dumps(export), stderr="")
+        with mock.patch.dict(os.environ, {sessmem.OPENCODE_ENV: "opencode"}), \
+                mock.patch.object(sessmem.subprocess, "run", return_value=done), \
+                mock.patch.object(sessmem, "summarize", side_effect=fake_summary) as call:
+            sessmem.export_opencode(OPENCODE_ID)
+        return call
+
+    def test_opencode_session_is_summarized_under_its_title_and_folder(self):
+        prompt = self.export_opencode(opencode_export()).call_args.args[0]
+        self.assertIn("USER: raise the retry budget\n  [edit] settings.toml\nAGENT: Raised it to 5.", prompt)
+        for dropped in ("injected", "private"):
+            self.assertNotIn(dropped, prompt)
+        self.assertIn("2026-11-15__widget__retry-budget", self.run_cli("search", "watchdog"))
+        with sessmem.store() as db:
+            self.assertEqual(sessmem.agent_of(db.execute("SELECT * FROM sessions").fetchone()), " (OpenCode)")
+
+    def test_later_opencode_export_sends_only_finished_new_messages(self):
+        self.export_opencode(opencode_export())
+        more = [opencode_message("user", {"type": "text", "text": "now add jitter"}),
+                opencode_message("assistant", {"type": "text", "text": "Added jitter."}),
+                opencode_message("user", {"type": "text", "text": "ship it"}),
+                opencode_message("assistant", {"type": "text", "text": "still typing"}, done=False)]
+        prompt = self.export_opencode(opencode_export(*more)).call_args.args[0]
+        self.assertIn("USER: now add jitter\nAGENT: Added jitter.\nUSER: ship it", prompt)
+        for absent in ("raise the retry budget", "still typing"):
+            self.assertNotIn(absent, prompt.split("<transcript>")[1])
+
+    def test_opencode_subagent_session_is_not_exported(self):
+        self.export_opencode(opencode_export(parentID="ses_parent")).assert_not_called()
+        self.assertEqual(sessmem.transcripts(), [])
 
 
 class BrainTests(StoreCase):
@@ -234,6 +365,27 @@ class BrainTests(StoreCase):
         self.assertEqual((notes / "tee.md").read_text(), "tee facts\n")
         self.assertTrue((notes.parent / "memory.pre-brain" / "tee.md").is_file())
 
+    @unittest.skipIf(os.name == "nt", "a dangling junction needs mklink to set up")
+    def test_link_replaces_a_link_left_dangling_by_a_moved_clone(self):
+        a = self.laptop("a")
+        repo = self.root / "repos" / "argus"
+        repo.mkdir(parents=True)
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(repo.resolve()))
+        notes = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / slug / "memory"
+        notes.parent.mkdir(parents=True)
+        notes.symlink_to(self.root / "old-clone" / "memory" / "argus", target_is_directory=True)
+        with self.on(a), contextlib.redirect_stdout(io.StringIO()):
+            sessmem.link(str(repo))
+        self.assertEqual(os.path.realpath(notes), os.path.realpath(a / "memory" / "argus"))
+
+    def test_brain_is_unified_llm_else_the_old_claude_brain(self):
+        home = self.root / "home"
+        for name in ("claude-brain", "unified-llm"):
+            with mock.patch.object(Path, "home", return_value=home), mock.patch.dict(os.environ):
+                os.environ.pop(sessmem.BRAIN_ENV, None)
+                (home / name / ".git").mkdir(parents=True)
+                self.assertEqual(sessmem.brain(), home / name)
+
 
 class HookTests(StoreCase):
     def test_session_end_inside_the_summarizer_spawns_nothing(self):
@@ -256,6 +408,35 @@ class HookTests(StoreCase):
         context = json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"]
         self.assertIn("EchoGuard tee storm - done - watchdog added", context)
         self.assertIn("search <words>", context)
+        self.assertNotIn("Memory notes", context)  # Claude Code loads MEMORY.md itself
+
+    def cursor_start(self, workspace, notes):
+        slug = re.sub(r"[^A-Za-z0-9]", "-", str(workspace.resolve()))
+        folder = Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / slug / "memory"
+        folder.mkdir(parents=True)
+        (folder / "MEMORY.md").write_text(notes, encoding="utf-8")
+        out = io.StringIO()
+        with mock.patch.object(sessmem, "spawn"), contextlib.redirect_stdout(out):
+            sessmem.hook_start(self.cursor_payload(workspace))
+        return json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"]
+
+    def test_cursor_session_start_gets_recent_sessions_and_the_memory_index(self):
+        self.write(SESSION)
+        with mock.patch.object(sessmem, "summarize", side_effect=fake_summary):
+            sessmem.index(self.transcript)
+        workspace = Path(self.tmp.name) / "lambda-argus"
+        workspace.mkdir()
+        context = self.cursor_start(workspace, "- [Radar](radar.md) - tee notes\n")
+        self.assertIn("EchoGuard tee storm - done - watchdog added", context)
+        self.assertIn("Memory notes for this project", context)
+        self.assertIn("- [Radar](radar.md) - tee notes", context)
+
+    def test_cursor_context_stays_under_cursors_limit(self):
+        workspace = Path(self.tmp.name) / "big"
+        workspace.mkdir()
+        context = self.cursor_start(workspace, "".join(f"- [Note {i}](n{i}.md) - {'x' * 80}\n" for i in range(300)))
+        self.assertLessEqual(len(context), 10_000)
+        self.assertTrue(context.endswith("(index cut short; read MEMORY.md)"))
 
 
 if __name__ == "__main__":
