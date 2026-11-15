@@ -275,6 +275,19 @@ class IndexTests(StoreCase):
         for absent in ("raise the retry budget", "still typing"):
             self.assertNotIn(absent, prompt.split("<transcript>")[1])
 
+    def test_reads_opencode_2_exports(self):
+        export = {"info": {"title": "Retry budget", "location": {"directory": "/home/me/repos/widget"}}, "messages": [
+            {"type": "user", "time": {"created": 1794713484000}, "text": "raise the retry budget"},
+            {"type": "assistant", "time": {"created": 1794713484000, "completed": 1794713485000}, "content": [
+                {"type": "reasoning", "text": "private"},
+                {"type": "tool", "name": "read", "state": {"input": {"path": "settings.toml"}}},
+                {"type": "text", "text": "Raised it to 5. " + "x" * 1000}]},
+            {"type": "idle", "time": {"created": 1794713485000}, "outcome": "succeeded"}]}
+        prompt = self.export_opencode(export).call_args.args[0]
+        self.assertIn("USER: raise the retry budget\n  [read] settings.toml\nAGENT: Raised it to 5.", prompt)
+        self.assertNotIn("private", prompt)
+        self.assertIn("2026-11-15__widget__retry-budget", self.run_cli("search", "watchdog"))
+
     def test_opencode_subagent_session_is_not_exported(self):
         self.export_opencode(opencode_export(parentID="ses_parent")).assert_not_called()
         self.assertEqual(sessmem.transcripts(), [])

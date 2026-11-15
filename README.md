@@ -183,7 +183,8 @@ recent sessions and how to search the rest.
   sessions also get the project's `MEMORY.md` index at start, which Claude Code loads by itself.
   Cursor has to have third-party plugins turned on (the default).
 - **OpenCode:** OpenCode runs no Claude Code hooks, so `opencode/session-memory.js` stands in
-  for them (setup below). A session is exported with `opencode export` when it goes quiet (at
+  for them (setup below; one file serves OpenCode 1.18.29+ and OpenCode 2). A session is
+  exported with OpenCode's own export command when it goes quiet (at
   most every ten minutes), when it compacts and when OpenCode exits, then summarized like the
   others and marked "(OpenCode)" in the recent list. Each OpenCode session gets the project's
   recent sessions and `MEMORY.md` index in its system prompt.
