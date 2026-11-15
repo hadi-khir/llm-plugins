@@ -68,6 +68,7 @@ BRAIN_ENV = "SESSMEM_BRAIN"
 BRAIN_DIRS = ("unified-llm", "claude-brain")  # in the home folder; the repo was renamed from claude-brain
 GIT_TIMEOUT = 10
 OPENCODE_ENV = "SESSMEM_OPENCODE"
+OPENCODE_V1_ENV = "SESSMEM_OPENCODE_V1"
 OPENCODE_TIMEOUT = 60
 CURSOR_CONTEXT_CHARS = 9_000  # Cursor drops a hook's additional_context over 10,000 characters
 
@@ -161,7 +162,7 @@ def clean(text):
 
 
 def tool_arg(args):
-    for name in ("file_path", "filePath", "command", "pattern", "url", "query", "skill", "description", "prompt"):
+    for name in ("file_path", "filePath", "path", "command", "pattern", "url", "query", "skill", "description", "prompt"):
         value = args.get(name)
         if isinstance(value, str) and value.strip():
             return value.strip().splitlines()[0][:TOOL_ARG_CHARS]
@@ -302,40 +303,52 @@ def _match_slug(folder, rest):
 def opencode_entries(export):
     """An OpenCode session export as transcript entries, one per finished message.
 
-    It stops at the first unfinished reply, so a later export only appends and
-    the byte offset of the last summary stays valid.
+    OpenCode 1 gives each message as ``info`` and ``parts``; OpenCode 2 gives it
+    flat, a prompt's ``text`` or a reply's ``content``. It stops at the first
+    unfinished reply, so a later export only appends and the byte offset of the
+    last summary stays valid.
     """
-    cwd = (export.get("info") or {}).get("directory")
+    cwd = opencode_dir_of(export.get("info") or {})
     for message in export.get("messages") or []:
-        info, content = message.get("info") or {}, []
-        times = info.get("time") or {}
-        if info.get("role") == "assistant" and not times.get("completed"):
+        info = message.get("info") or message
+        role, times = info.get("role") or info.get("type"), info.get("time") or {}
+        if role not in ("user", "assistant"):
+            continue
+        if role == "assistant" and not times.get("completed"):
             break
-        for part in message.get("parts") or []:
+        parts = message.get("parts") or message.get("content") or [{"type": "text", "text": message.get("text")}]
+        content = []
+        for part in parts:
             if part.get("type") == "text" and not (part.get("synthetic") or part.get("ignored")):
                 content.append({"type": "text", "text": part.get("text") or ""})
             elif part.get("type") == "tool":
-                content.append({"type": "tool_use", "name": part.get("tool"),
+                content.append({"type": "tool_use", "name": part.get("tool") or part.get("name"),
                                 "input": (part.get("state") or {}).get("input") or {}})
         stamp = datetime.fromtimestamp((times.get("created") or 0) / 1000, timezone.utc)
-        yield {"type": info.get("role"), "timestamp": stamp.isoformat(timespec="seconds"), "cwd": cwd,
+        yield {"type": role, "timestamp": stamp.isoformat(timespec="seconds"), "cwd": cwd,
                "message": {"content": content}}
+
+
+def opencode_dir_of(info):
+    return info.get("directory") or (info.get("location") or {}).get("directory")
 
 
 def opencode_transcript(session_id):
     """Export an OpenCode session and write it as a transcript; None for a subagent's session.
 
-    ``--pure`` keeps the export from loading plugins, this one included.
+    OpenCode 1 exports with ``export --pure``, which loads no plugins; OpenCode 2
+    with ``session export``, and the plugin stands down under ``SESSMEM_CHILD``.
     """
     opencode = os.environ.get(OPENCODE_ENV) or shutil.which("opencode")
     if not opencode:
         raise RuntimeError("opencode CLI not on PATH")
+    command = ["export", session_id, "--pure"] if os.environ.get(OPENCODE_V1_ENV) else ["session", "export", session_id]
     flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-    result = subprocess.run([opencode, "export", session_id, "--pure"], capture_output=True, text=True,
+    result = subprocess.run([opencode, *command], capture_output=True, text=True,
                             encoding="utf-8", timeout=OPENCODE_TIMEOUT, stdin=subprocess.DEVNULL,
-                            creationflags=flags)
+                            creationflags=flags, env={**os.environ, CHILD_ENV: "1"})
     if result.returncode != 0:
-        raise RuntimeError(f"opencode export exited {result.returncode}: {result.stderr.strip()[:500]}")
+        raise RuntimeError(f"opencode {command[0]} exited {result.returncode}: {result.stderr.strip()[:500]}")
     export = json.loads(result.stdout[result.stdout.index("{"):])
     info = export.get("info") or {}
     if info.get("parentID"):

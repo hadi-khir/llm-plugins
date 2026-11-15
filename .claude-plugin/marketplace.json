@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
   "name": "hadi-plugins",
   "description": "Claude Code plugins by Hadi Khir",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "owner": {
     "name": "Hadi Khir",
     "email": "khir.hadi@gmail.com",
@@ -33,7 +33,7 @@
       "name": "session-memory",
       "source": "./plugins/session-memory",
       "description": "Summarizes every Claude Code, Cursor and OpenCode session with Haiku into a local SQLite full-text store; new sessions see their project's recent history and a search command.",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "author": {
         "name": "Hadi Khir",
         "email": "khir.hadi@gmail.com"
