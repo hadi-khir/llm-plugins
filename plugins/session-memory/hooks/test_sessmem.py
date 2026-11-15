@@ -76,6 +76,24 @@ CURSOR_SESSION = [
 ]
 
 
+OPENCODE_ID = "ses_e22bd825effeRAt2PKR11Fs5vk"
+
+
+def opencode_message(role, *parts, done=True):
+    time = {"created": 1794713484000, **({"completed": 1794713485000} if done and role == "assistant" else {})}
+    return {"info": {"role": role, "time": time}, "parts": list(parts)}
+
+
+def opencode_export(*messages, **info):
+    return {"info": {"id": OPENCODE_ID, "title": "Retry budget", "directory": "/home/me/repos/widget", **info},
+            "messages": [opencode_message("user", {"type": "text", "text": "raise the retry budget"},
+                                          {"type": "text", "text": "injected", "synthetic": True}),
+                         opencode_message("assistant", {"type": "reasoning", "text": "private"},
+                                          {"type": "tool", "tool": "edit", "state": {"input": {"filePath": "settings.toml"}}},
+                                          {"type": "text", "text": "Raised it to 5. " + "x" * 1000}),
+                         *messages]}
+
+
 class StoreCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -227,6 +245,39 @@ class IndexTests(StoreCase):
         self.assertEqual(row["cwd"], str(workspace))
         self.assertTrue(row["key"].endswith("__ops-box__why-is-the-tunnel-down"))
         self.assertNotIn("unknown-date", row["key"])
+
+
+    def export_opencode(self, export):
+        done = mock.Mock(returncode=0, stdout=json.dumps(export), stderr="")
+        with mock.patch.dict(os.environ, {sessmem.OPENCODE_ENV: "opencode"}), \
+                mock.patch.object(sessmem.subprocess, "run", return_value=done), \
+                mock.patch.object(sessmem, "summarize", side_effect=fake_summary) as call:
+            sessmem.export_opencode(OPENCODE_ID)
+        return call
+
+    def test_opencode_session_is_summarized_under_its_title_and_folder(self):
+        prompt = self.export_opencode(opencode_export()).call_args.args[0]
+        self.assertIn("USER: raise the retry budget\n  [edit] settings.toml\nAGENT: Raised it to 5.", prompt)
+        for dropped in ("injected", "private"):
+            self.assertNotIn(dropped, prompt)
+        self.assertIn("2026-11-15__widget__retry-budget", self.run_cli("search", "watchdog"))
+        with sessmem.store() as db:
+            self.assertEqual(sessmem.agent_of(db.execute("SELECT * FROM sessions").fetchone()), " (OpenCode)")
+
+    def test_later_opencode_export_sends_only_finished_new_messages(self):
+        self.export_opencode(opencode_export())
+        more = [opencode_message("user", {"type": "text", "text": "now add jitter"}),
+                opencode_message("assistant", {"type": "text", "text": "Added jitter."}),
+                opencode_message("user", {"type": "text", "text": "ship it"}),
+                opencode_message("assistant", {"type": "text", "text": "still typing"}, done=False)]
+        prompt = self.export_opencode(opencode_export(*more)).call_args.args[0]
+        self.assertIn("USER: now add jitter\nAGENT: Added jitter.\nUSER: ship it", prompt)
+        for absent in ("raise the retry budget", "still typing"):
+            self.assertNotIn(absent, prompt.split("<transcript>")[1])
+
+    def test_opencode_subagent_session_is_not_exported(self):
+        self.export_opencode(opencode_export(parentID="ses_parent")).assert_not_called()
+        self.assertEqual(sessmem.transcripts(), [])
 
 
 class BrainTests(StoreCase):

@@ -161,7 +161,7 @@ python -m unittest plugins/jev-planning/hooks/test_plan_gate.py
 
 ### session-memory
 
-A searchable memory of your past Claude Code and Cursor sessions. When a session ends (or compacts),
+A searchable memory of your past Claude Code, Cursor and OpenCode sessions. When a session ends (or compacts),
 a background worker reads its transcript, keeps your prompts, the agent's replies and one line
 per tool call, redacts secrets, and has Haiku fold it into a short summary: goal, outcome,
 decisions, artifacts, open threads, topics. Summaries land in a local SQLite full-text store
@@ -182,6 +182,11 @@ recent sessions and how to search the rest.
   `~/.cursor/projects/*/agent-transcripts` and marked "(Cursor)" in the recent list. Cursor
   sessions also get the project's `MEMORY.md` index at start, which Claude Code loads by itself.
   Cursor has to have third-party plugins turned on (the default).
+- **OpenCode:** OpenCode runs no Claude Code hooks, so `opencode/session-memory.js` stands in
+  for them (setup below). A session is exported with `opencode export` when it goes quiet (at
+  most every ten minutes), when it compacts and when OpenCode exits, then summarized like the
+  others and marked "(OpenCode)" in the recent list. Each OpenCode session gets the project's
+  recent sessions and `MEMORY.md` index in its system prompt.
 
 #### Setup
 
@@ -189,6 +194,15 @@ Python 3.9+ and the `claude` CLI on `PATH`; no packages to install.
 
 ```
 /plugin install session-memory@hadi-plugins
+```
+
+For OpenCode, after the install above, link the plugin file into OpenCode's global plugins
+folder (a copy works too; it then finds `sessmem.py` in the installed Claude Code plugin):
+
+```bash
+mkdir -p ~/.config/opencode/plugins
+ln -sf "$(ls -d ~/.claude/plugins/cache/hadi-plugins/session-memory/*/opencode/session-memory.js | tail -1)" \
+  ~/.config/opencode/plugins/session-memory.js
 ```
 
 Claude Code deletes transcripts 30 days after their last activity. To keep the raw

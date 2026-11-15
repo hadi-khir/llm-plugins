@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "session-memory",
   "displayName": "Session Memory",
-  "version": "0.3.0",
-  "description": "Summarizes every Claude Code and Cursor session with Haiku into a local SQLite full-text store, and shows each new session its project's recent history plus a search command.",
+  "version": "0.4.0",
+  "description": "Summarizes every Claude Code, Cursor and OpenCode session with Haiku into a local SQLite full-text store, and shows each new session its project's recent history plus a search command.",
   "author": {
     "name": "Hadi Khir",
     "email": "khir.hadi@gmail.com"
